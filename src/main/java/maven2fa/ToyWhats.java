@@ -237,45 +237,36 @@ public class ToyWhats {
 
     public void persist() {
         try {
-            FileOutputStream fout = new FileOutputStream(usersFile);
-            ObjectOutputStream oo = new ObjectOutputStream(fout);
-            oo.writeObject(this.users);
+            BufferedWriter writer = new BufferedWriter(new FileWriter(usersFile, false)); // false para sobrescrever o arquivo existente
 
-            oo.flush();
-            fout.flush();
+            // Escreva o cabeçalho da tabela
+            writer.write("nome;celular;senha;salt\n");
 
-            oo.close();
-            fout.close();
+            // Escreva os detalhes de cada usuário na tabela
+            for (User user : users.values()) {
+                writer.write(user.getUsername() + ";");
+                writer.write(user.getPhoneNumber() + ";");
+                writer.write(user.getPassword() + ";");
+                writer.write(Hex.encodeHexString(user.getSalt()) + "\n"); // Converta o salt para uma string hexadecimal
+            }
 
-            loadData();
+            writer.flush();
+            writer.close();
 
-        } catch (FileNotFoundException ex) {
-            System.out.println(ex);
-            persist();
+        }  catch (FileNotFoundException ex) {
+            System.out.println("Erro: Arquivo não encontrado. Criando novo arquivo...");
+            File file = new File(usersFile);
+            try {
+                if (file.createNewFile()) {
+                    persist(); // Chame persist novamente após criar o arquivo
+                } else {
+                    System.out.println("Erro ao criar o arquivo. Verifique as permissões e tente novamente.");
+                }
+            } catch (IOException e) {
+                System.out.println("Erro ao criar o arquivo: " + e.getMessage());
+            }
         } catch (IOException ex) {
-            System.out.println(ex);
-        }
-    }
-
-    public void loadData() {
-        try {
-            FileInputStream fin = new FileInputStream(usersFile);
-            ObjectInputStream oi = new ObjectInputStream(fin);
-
-            this.users = (HashMap<String, User>) oi.readObject();
-
-            oi.close();
-            fin.close();
-
-        } catch (ClassNotFoundException ex) {
-            ex.printStackTrace();
-
-        } catch (FileNotFoundException ex) {
-            System.out.println(ex);
-            persist();
-
-        } catch (IOException ex) {
-            ex.printStackTrace();
+            System.out.println("Erro de IO: " + ex.getMessage());
         }
     }
 }
