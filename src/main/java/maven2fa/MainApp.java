@@ -2,8 +2,6 @@ package maven2fa;
 
 import com.google.zxing.WriterException;
 
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
 import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -27,7 +25,7 @@ public class MainApp {
                         String celular = scanner.nextLine();
                         System.out.println("Insira a senha:");
                         String password = scanner.nextLine();
-                        toyWhats.registerUser(login, celular, password);
+                        PersistData.registerUser(login, celular, password);
 
                         System.out.println("=====cadastro========concluido===== ");
                         break;
@@ -55,10 +53,8 @@ public class MainApp {
                 }
             }
 
-        } catch (WriterException ex) {
-            Logger.getLogger(Example2fa.class.getName()).log(Level.SEVERE, null, ex);
         } catch (Exception ex) {
-            Logger.getLogger(Example2fa.class.getName()).log(Level.SEVERE, null, ex);
+            Logger.getLogger(Utils.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
 }

@@ -1,2 +1,0 @@
-nome;celular;senha;salt
-brenno;123;600b8f37833158ce750a61c98a7efc04b60e4b7d5530abfdaa0f8a33ef1b01b2;18a133c5a49c04b23673d81ea2dd8d37

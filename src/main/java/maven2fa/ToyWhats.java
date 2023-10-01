@@ -1,82 +1,27 @@
 package maven2fa;
 
 import org.apache.commons.codec.binary.Hex;
-import org.bouncycastle.util.encoders.DecoderException;
 
-import java.io.*;
 import java.util.HashMap;
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
-import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Scanner;
 
-import static maven2fa.Example2fa.*;
-import static maven2fa.SCRYPT.generateSalt;
+import static maven2fa.CypherSecurity.deriveKeyOrIV;
+import static maven2fa.Utils.*;
 
 public class ToyWhats {
-    public HashMap<String, User> users = new HashMap<>();
-    private final HashMap<String, HashMap<String, String>> messages = new HashMap<>();
-    private final String usersFile = "Users.txt";
-
-    public void registerUser(String username, String phoneNumber, String password) throws Exception {
-        if (username == null || phoneNumber == null || password == null) {
-            System.out.println("Dados inválidos. Tente novamente.");
-            return;
-        }
-
-        if (users.containsKey(username)) {
-            System.out.println("Usuário já existe. Escolha outro nome de usuário.");
-            return;
-        }
-
-        byte[] salt = generateSalt();  // Método para gerar um salt aleatório
-        int costParameter = 2048; // exemplo: 2048 (afeta uso de memória e CPU)
-        int blocksize = 8; // exemplo: 8
-        int parallelizationParam = 1; // exemplo: 1
-
-        byte[] hashPassword = SCRYPT.useScryptKDF(password.toCharArray(), salt, costParameter, blocksize, parallelizationParam);
-        String scryptHashPassword =  Hex.encodeHexString(hashPassword);
-
-        byte[] derivateKey = deriveKey(phoneNumber, salt); // derivado usando PBKDF2 (HASH)
-
-        String PBKDF2asString = convertBase32(derivateKey); // get string
-
-        String email = "email@gmail.com";
-        String companyName = "Empresa";
-        String barCodeUrl = getGoogleAuthenticatorBarCode(PBKDF2asString, email, companyName);
-        System.out.println("Bar Code URL = " + barCodeUrl);
-
-        int width = 246;
-        int height = 246;
-
-        // Fica no diretório do projeto.
-        createQRCode(barCodeUrl, "matrixURL.png", height, width);
-
-        User newUser = new User();
-        newUser.setUsername(username);
-        newUser.setPhoneNumber(phoneNumber);
-        newUser.setPassword(scryptHashPassword);
-        newUser.setSalt(salt);
-
-        users.put(username, newUser);
-        this.persist();
-    }
 
     public boolean authenticateUser(String username, String password, String totpCode) throws Exception {
 
         // Carregue os dados do arquivo para o mapa de usuários
-        loadData();
+        PersistData.loadData();
 
         if (username == null || password == null || totpCode == null) {
             System.out.println("Dados inválidos. Tente novamente.");
             return false;
         }
 
-        User user = users.get(username);
+        User user = PersistData.users.get(username);
         if (user == null) {
             System.out.println("Usuário não encontrado.");
             return false;
@@ -88,48 +33,55 @@ public class ToyWhats {
         int parallelizationParam = 1; // exemplo: 1
 
         byte[] derivedKey2 = SCRYPT.useScryptKDF(password.toCharArray(), storedSalt, costParameter, blocksize, parallelizationParam);
-        String ScryptPassword =  Hex.encodeHexString(derivedKey2);
+        String ScryptPassword = Hex.encodeHexString(derivedKey2);
 
         String storedDerivedKey = user.getPassword();
-        byte[] derivateKey = deriveKey(user.getPhoneNumber(), user.getSalt()); // derivado usando PBKDF2 (HASH)
+        byte[] derivateKey = deriveKeyOrIV(user.getPhoneNumber(), user.getSalt(), false); // derivado usando PBKDF2 (HASH)
         String PBKDF2asString = convertBase32(derivateKey);
 
         return ScryptPassword.equals(storedDerivedKey) && totpCode.equals(getTOTPCode(PBKDF2asString));
     }
 
-    public void sendMessage(String fromUser, String toUser, String message) {
+    public void sendMessage(String senderName, String receiverName, String message) {
         try {
             // Validação básica
-            if (fromUser == null || toUser == null || message == null) {
+            if (senderName == null || receiverName == null || message == null) {
                 System.out.println("Dados inválidos. Tente novamente.");
                 return;
             }
 
             // Verificar se os usuários existem
-            if (!users.containsKey(fromUser) || !users.containsKey(toUser)) {
+            if (!PersistData.users.containsKey(senderName) || !PersistData.users.containsKey(receiverName)) {
                 System.out.println("Usuário não encontrado.");
                 return;
             }
 
+            User user = PersistData.users.get(senderName);
+            String phone = user.getPhoneNumber();
+            byte[] salt = user.getSalt();
 
-            byte[] derivateKey = deriveKey(users.get(fromUser).getPhoneNumber(), users.get(fromUser).getSalt());
-            String PBKDF2asString = convertBase32(derivateKey);
+            byte[] derivateKey = deriveKeyOrIV(phone, salt, false);
+            String PBKDF2Key = convertBase32(derivateKey);
 
             // Obter a chave secreta do usuário de origem
-            if (PBKDF2asString == null) {
+            if (PBKDF2Key == null) {
                 System.out.println("Chave secreta não encontrada para o usuário de origem.");
                 return;
             }
 
-
             // Criptografar a mensagem
-            byte[] encryptedMessage = encryptMessage(message, PBKDF2asString);
+            byte[] encryptedMessage = CypherSecurity.encryptMessage(message, phone, PBKDF2Key, salt);
 
             // Converter para Base64 para armazenamento seguro como string
             String encryptedMessageStr = Base64.getEncoder().encodeToString(encryptedMessage);
 
+            // Print
+            System.out.println("MENSAGEM CIFRADA: " + encryptedMessageStr);
+
             // Armazenar a mensagem criptografada
-            messages.computeIfAbsent(fromUser, k -> new HashMap<>()).put(toUser, encryptedMessageStr);
+            PersistData.messages.computeIfAbsent(senderName, k -> new HashMap<>()).put(receiverName, encryptedMessageStr);
+
+            System.out.println("Mensagem Cifrada Enviada!");
         } catch (Exception e) {
             System.out.println("Erro ao enviar mensagem: " + e.getMessage());
         }
@@ -142,26 +94,26 @@ public class ToyWhats {
                 return null;
             }
 
-            if (!users.containsKey(senderUser) || !users.containsKey(receiverUser)) {
+            if (!PersistData.users.containsKey(senderUser) || !PersistData.users.containsKey(receiverUser)) {
                 System.out.println("Usuário não encontrado.");
                 return null;
             }
 
-            User fromUserObj = users.get(senderUser);
+            User fromUserObj = PersistData.users.get(senderUser);
             if (fromUserObj == null) {
                 System.out.println("Usuário de origem não encontrado.");
                 return null;
             }
 
-            byte[] derivateKey = deriveKey(fromUserObj.getPhoneNumber(), fromUserObj.getSalt());
-            String PBKDF2asString = convertBase32(derivateKey);
+            byte[] derivateKey = deriveKeyOrIV(fromUserObj.getPhoneNumber(), fromUserObj.getSalt(), false);
+            String PBKDF2Key = convertBase32(derivateKey);
 
-            if (PBKDF2asString == null) {
+            if (PBKDF2Key == null) {
                 System.out.println("Chave secreta não encontrada para o usuário de origem.");
                 return null;
             }
 
-            HashMap<String, String> fromUserMessages = messages.get(senderUser);
+            HashMap<String, String> fromUserMessages = PersistData.messages.get(senderUser);
             if (fromUserMessages == null) {
                 System.out.println("Nenhuma mensagem encontrada para o usuário de origem.");
                 return null;
@@ -173,8 +125,10 @@ public class ToyWhats {
                 return null;
             }
 
-            byte[] encryptedMessage = encryptedMessageStr.getBytes(); // Convertendo de volta para bytes
-            return decryptMessage(encryptedMessage, PBKDF2asString);
+
+            byte[] encryptedMessage = Base64.getDecoder().decode(encryptedMessageStr.getBytes()); // Convertendo de volta para bytes
+
+            return CypherSecurity.decryptMessage(encryptedMessage, PBKDF2Key);
         } catch (Exception e) {
 
             System.out.println("Erro ao ler mensagem: " + e.getMessage());
@@ -182,7 +136,7 @@ public class ToyWhats {
         }
     }
 
-    // menu usuario altenticado
+    // menu usuario autenticado
     public void postAuthenticationMenu(String authenticatedUser) {
         Scanner scanner = new Scanner(System.in);
 
@@ -212,132 +166,6 @@ public class ToyWhats {
                 default:
                     System.out.println("Opção inválida. Tente novamente.");
             }
-        }
-    }
-
-    public byte[] encryptMessage(String message, String key) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        SecretKeySpec keySpec = new SecretKeySpec(key.getBytes(), "AES");
-
-        // Gerar um IV aleatório
-        SecureRandom secureRandom = new SecureRandom();
-        byte[] iv = new byte[12]; // GCM 12 bytes para o IV
-        secureRandom.nextBytes(iv);
-
-
-
-        GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(128, iv);
-
-        cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmParameterSpec);
-        byte[] encryptedText = cipher.doFinal(message.getBytes());
-
-        // Concatenar IV e texto cifrado para armazenamento
-        byte[] encryptedMessage = new byte[iv.length + encryptedText.length];
-        System.arraycopy(iv, 0, encryptedMessage, 0, iv.length);
-        System.arraycopy(encryptedText, 0, encryptedMessage, iv.length, encryptedText.length);
-
-        return encryptedMessage;
-    }
-
-    public String decryptMessage(byte[] encryptedMessageWithIv, String key) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        SecretKeySpec keySpec = new SecretKeySpec(key.getBytes(), "AES");
-
-        // Extrair IV e texto cifrado
-        byte[] iv = new byte[12];
-        System.arraycopy(encryptedMessageWithIv, 0, iv, 0, iv.length);
-        byte[] encryptedText = new byte[encryptedMessageWithIv.length - iv.length];
-        System.arraycopy(encryptedMessageWithIv, iv.length, encryptedText, 0, encryptedText.length);
-
-        GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(128, iv);
-        cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmParameterSpec);
-        byte[] decryptedMessage = cipher.doFinal(encryptedText);
-
-        return new String(decryptedMessage);
-    }
-
-    public static byte[] deriveKey(String phone, byte[] salt) throws Exception {
-        PBEKeySpec spec = new PBEKeySpec(phone.toCharArray(), salt, 65536, 160); // byte[20]
-        SecretKeyFactory skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-        byte[] key = skf.generateSecret(spec).getEncoded();
-        return key;
-    }
-
-    public void persist() {
-        try {
-            BufferedWriter writer = new BufferedWriter(new FileWriter(usersFile, false)); // false para sobrescrever o arquivo existente
-
-            // Escreva o cabeçalho da tabela
-            writer.write("nome;celular;senha;salt\n");
-
-            // Escreva os detalhes de cada usuário na tabela
-            for (User user : users.values()) {
-                writer.write(user.getUsername() + ";");
-                writer.write(user.getPhoneNumber() + ";");
-                writer.write(user.getPassword() + ";");
-                writer.write(Hex.encodeHexString(user.getSalt()) + "\n"); // Converta o salt para uma string hexadecimal
-            }
-
-            writer.flush();
-            writer.close();
-
-        }  catch (FileNotFoundException ex) {
-            System.out.println("Erro: Arquivo não encontrado. Criando novo arquivo...");
-            File file = new File(usersFile);
-            try {
-                if (file.createNewFile()) {
-                    persist(); // Chame persist novamente após criar o arquivo
-                } else {
-                    System.out.println("Erro ao criar o arquivo. Verifique as permissões e tente novamente.");
-                }
-            } catch (IOException e) {
-                System.out.println("Erro ao criar o arquivo: " + e.getMessage());
-            }
-        } catch (IOException ex) {
-            System.out.println("Erro de IO: " + ex.getMessage());
-        }
-    }
-
-    public void loadData() {
-        users.clear(); // Limpe o mapa atual de usuários
-
-        try {
-            BufferedReader reader = new BufferedReader(new FileReader(usersFile));
-
-            String line;
-            boolean isFirstLine = true; // Para ignorar a primeira linha (cabeçalho)
-
-            while ((line = reader.readLine()) != null) {
-                if (isFirstLine) {
-                    isFirstLine = false;
-                    continue; // Ignora o cabeçalho
-                }
-
-                String[] parts = line.split(";");
-                if (parts.length != 4) {
-                    System.out.println("Linha mal formatada: " + line);
-                    continue;
-                }
-
-                User user = new User();
-                user.setUsername(parts[0]);
-                user.setPhoneNumber(parts[1]);
-                user.setPassword(parts[2]);
-                user.setSalt(Hex.decodeHex(parts[3].toCharArray())); // Converta a string hexadecimal de volta para um array de bytes
-
-                users.put(user.getUsername(), user);
-            }
-
-            reader.close();
-
-        } catch (FileNotFoundException ex) {
-            System.out.println("Erro: Arquivo não encontrado.");
-        } catch (IOException ex) {
-            System.out.println("Erro de IO: " + ex.getMessage());
-        } catch (DecoderException ex) {
-            System.out.println("Erro ao decodificar o salt: " + ex.getMessage());
-        } catch (org.apache.commons.codec.DecoderException e) {
-            throw new RuntimeException(e);
         }
     }
 
