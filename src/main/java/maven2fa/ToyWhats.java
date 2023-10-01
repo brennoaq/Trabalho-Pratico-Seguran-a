@@ -70,7 +70,6 @@ public class ToyWhats {
 
     public boolean authenticateUser(String username, String password, String totpCode) throws Exception {
 
-//          String TOTPcode = getTOTPCode(PBKDF2asString); // TOTP code
         // Carregue os dados do arquivo para o mapa de usuários
         loadData();
 
@@ -94,8 +93,10 @@ public class ToyWhats {
         String ScryptPassword =  Hex.encodeHexString(derivedKey2);
 
         String storedDerivedKey = user.getPassword();
+        byte[] derivateKey = deriveKey(user.getPhoneNumber(), user.getSalt()); // derivado usando PBKDF2 (HASH)
 
-        return ScryptPassword.equals(storedDerivedKey) && totpCode.equals(getTOTPCode(user.getSecretKey()));
+        String PBKDF2asString = convertBase32(derivateKey);
+        return ScryptPassword.equals(storedDerivedKey) && totpCode.equals(getTOTPCode(PBKDF2asString));
     }
 
     public void sendMessage(String fromUser, String toUser, String message) {
@@ -113,7 +114,7 @@ public class ToyWhats {
             }
 
             // Obter a chave secreta do usuário de origem
-            String key = users.get(fromUser).getSecretKey();
+            String key = "a"; // users.get(fromUser).getSecretKey();
             if (key == null) {
                 System.out.println("Chave secreta não encontrada para o usuário de origem.");
                 return;
@@ -151,7 +152,7 @@ public class ToyWhats {
                 return null;
             }
 
-            String key = fromUserObj.getSecretKey(); // Usando a secret key do usuário como chave de decifragem
+            String key = "a"; // fromUserObj.getSecretKey(); // Usando a secret key do usuário como chave de decifragem
             if (key == null) {
                 System.out.println("Chave secreta não encontrada para o usuário de origem.");
                 return null;

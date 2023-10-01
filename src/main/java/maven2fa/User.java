@@ -5,7 +5,6 @@ public class User {
     private String phoneNumber;
     private String password;
     private byte[] salt;
-    private String secretKey;
 
     // Getters and Setters
 
@@ -39,13 +38,5 @@ public class User {
 
     public void setSalt(byte[] salt) {
         this.salt = salt;
-    }
-
-    public String getSecretKey() {
-        return secretKey;
-    }
-
-    public void setSecretKey(String secretKey) {
-        this.secretKey = secretKey;
     }
 }
