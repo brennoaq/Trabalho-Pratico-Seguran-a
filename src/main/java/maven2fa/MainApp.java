@@ -29,10 +29,6 @@ public class MainApp {
                         String password = scanner.nextLine();
                         toyWhats.registerUser(login, celular, password);
 
-                        User user = toyWhats.users.get(login);
-                        String secret = user.getSecretKey();
-
-                        System.out.println("Chave secreta para 2FA: " + secret);
                         System.out.println("=====cadastro========concluido===== ");
                         break;
                     case "2":

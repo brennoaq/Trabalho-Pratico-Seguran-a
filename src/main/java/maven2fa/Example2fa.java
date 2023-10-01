@@ -46,6 +46,11 @@ public class Example2fa {
         return base32.encodeToString(bytes);
     }
 
+    public static String convertBase32(byte[] key) {
+        Base32 base32 = new Base32();
+        return base32.encodeToString(key);
+    }
+
     // https://github.com/taimos/totp/blob/master/src/main/java/de/taimos/totp/TOTP.java
     // TOTP Code permanece válido por 30 segundos
     public static String getTOTPCode(String secretKey) {
@@ -53,7 +58,6 @@ public class Example2fa {
         byte[] bytes = base32.decode(secretKey);
         String hexKey = Hex.encodeHexString(bytes);
         return TOTP.getOTP(hexKey);
-
     }
 
     public static String getGoogleAuthenticatorBarCode(String secretKey, String account, String issuer) {

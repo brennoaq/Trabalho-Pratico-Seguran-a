@@ -1,6 +1,7 @@
 package maven2fa;
 
 import org.apache.commons.codec.binary.Hex;
+import org.bouncycastle.util.encoders.DecoderException;
 
 import java.io.*;
 import java.util.HashMap;
@@ -13,6 +14,7 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Scanner;
 
+import static maven2fa.Example2fa.*;
 import static maven2fa.SCRYPT.generateSalt;
 
 public class ToyWhats {
@@ -36,15 +38,29 @@ public class ToyWhats {
         int blocksize = 8; // exemplo: 8
         int parallelizationParam = 1; // exemplo: 1
 
-        byte[] derivedKey = SCRYPT.useScryptKDF(password.toCharArray(), salt, costParameter, blocksize, parallelizationParam);
-        String ScryptPassword =  Hex.encodeHexString(derivedKey);
+        byte[] hashPassword = SCRYPT.useScryptKDF(password.toCharArray(), salt, costParameter, blocksize, parallelizationParam);
+        String scryptHashPassword =  Hex.encodeHexString(hashPassword);
+
+        byte[] derivateKey = deriveKey(phoneNumber, salt); // derivado usando PBKDF2 (HASH)
+
+        String PBKDF2asString = convertBase32(derivateKey); // get string
+
+        String email = "email@gmail.com";
+        String companyName = "Empresa";
+        String barCodeUrl = getGoogleAuthenticatorBarCode(PBKDF2asString, email, companyName);
+        System.out.println("Bar Code URL = " + barCodeUrl);
+
+        int width = 246;
+        int height = 246;
+
+        // Fica no diretório do projeto.
+        createQRCode(barCodeUrl, "matrixURL.png", height, width);
 
         User newUser = new User();
         newUser.setUsername(username);
         newUser.setPhoneNumber(phoneNumber);
-        newUser.setPassword(ScryptPassword);
+        newUser.setPassword(scryptHashPassword);
         newUser.setSalt(salt);
-        newUser.setSecretKey(Example2fa.generateSecretKey()); //gera chave 2FA para o user
 
         users.put(username, newUser);
         this.persist();
@@ -53,6 +69,11 @@ public class ToyWhats {
 
 
     public boolean authenticateUser(String username, String password, String totpCode) throws Exception {
+
+//          String TOTPcode = getTOTPCode(PBKDF2asString); // TOTP code
+        // Carregue os dados do arquivo para o mapa de usuários
+        loadData();
+
         if (username == null || password == null || totpCode == null) {
             System.out.println("Dados inválidos. Tente novamente.");
             return false;
@@ -74,7 +95,7 @@ public class ToyWhats {
 
         String storedDerivedKey = user.getPassword();
 
-        return ScryptPassword.equals(storedDerivedKey) && totpCode.equals(Example2fa.getTOTPCode(user.getSecretKey()));
+        return ScryptPassword.equals(storedDerivedKey) && totpCode.equals(getTOTPCode(user.getSecretKey()));
     }
 
     public void sendMessage(String fromUser, String toUser, String message) {
@@ -228,11 +249,11 @@ public class ToyWhats {
         return new String(decryptedMessage);
     }
 
-    public static String deriveKey(String password, byte[] salt) throws Exception {
-        PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt, 65536, 128);
+    public static byte[] deriveKey(String phone, byte[] salt) throws Exception {
+        PBEKeySpec spec = new PBEKeySpec(phone.toCharArray(), salt, 65536, 160);
         SecretKeyFactory skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
         byte[] key = skf.generateSecret(spec).getEncoded();
-        return new String(key);
+        return key;
     }
 
     public void persist() {
@@ -269,4 +290,48 @@ public class ToyWhats {
             System.out.println("Erro de IO: " + ex.getMessage());
         }
     }
+
+    public void loadData() {
+        users.clear(); // Limpe o mapa atual de usuários
+
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader(usersFile));
+
+            String line;
+            boolean isFirstLine = true; // Para ignorar a primeira linha (cabeçalho)
+
+            while ((line = reader.readLine()) != null) {
+                if (isFirstLine) {
+                    isFirstLine = false;
+                    continue; // Ignora o cabeçalho
+                }
+
+                String[] parts = line.split(";");
+                if (parts.length != 4) {
+                    System.out.println("Linha mal formatada: " + line);
+                    continue;
+                }
+
+                User user = new User();
+                user.setUsername(parts[0]);
+                user.setPhoneNumber(parts[1]);
+                user.setPassword(parts[2]);
+                user.setSalt(Hex.decodeHex(parts[3].toCharArray())); // Converta a string hexadecimal de volta para um array de bytes
+
+                users.put(user.getUsername(), user);
+            }
+
+            reader.close();
+
+        } catch (FileNotFoundException ex) {
+            System.out.println("Erro: Arquivo não encontrado.");
+        } catch (IOException ex) {
+            System.out.println("Erro de IO: " + ex.getMessage());
+        } catch (DecoderException ex) {
+            System.out.println("Erro ao decodificar o salt: " + ex.getMessage());
+        } catch (org.apache.commons.codec.DecoderException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
 }
