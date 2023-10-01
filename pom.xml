@@ -28,6 +28,11 @@
             <artifactId>javase</artifactId>
             <version>3.2.1</version>
         </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bc-fips</artifactId>
+            <version>1.0.2</version>
+        </dependency>
     </dependencies>
     <name>Exemplo13-maven-2fa</name>
 </project>

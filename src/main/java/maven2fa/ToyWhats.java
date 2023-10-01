@@ -1,5 +1,8 @@
 package maven2fa;
 
+import org.apache.commons.codec.binary.Hex;
+
+import java.io.*;
 import java.util.HashMap;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -10,9 +13,12 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Scanner;
 
+import static maven2fa.SCRYPT.generateSalt;
+
 public class ToyWhats {
-    public final HashMap<String, User> users = new HashMap<>();
+    public HashMap<String, User> users = new HashMap<>();
     private final HashMap<String, HashMap<String, String>> messages = new HashMap<>();
+    private final String usersFile = "Users.txt";
 
     public void registerUser(String username, String phoneNumber, String password) throws Exception {
         if (username == null || phoneNumber == null || password == null) {
@@ -25,17 +31,23 @@ public class ToyWhats {
             return;
         }
 
-        String salt = generateSalt();  // Método para gerar um salt aleatório
-        String derivedKey = deriveKey(password, salt);  // Usando PBKDF2 para derivar a chave
+        byte[] salt = generateSalt();  // Método para gerar um salt aleatório
+        int costParameter = 2048; // exemplo: 2048 (afeta uso de memória e CPU)
+        int blocksize = 8; // exemplo: 8
+        int parallelizationParam = 1; // exemplo: 1
+
+        byte[] derivedKey = SCRYPT.useScryptKDF(password.toCharArray(), salt, costParameter, blocksize, parallelizationParam);
+        String ScryptPassword =  Hex.encodeHexString(derivedKey);
 
         User newUser = new User();
         newUser.setUsername(username);
         newUser.setPhoneNumber(phoneNumber);
-        newUser.setPassword(derivedKey);
+        newUser.setPassword(ScryptPassword);
         newUser.setSalt(salt);
         newUser.setSecretKey(Example2fa.generateSecretKey()); //gera chave 2FA para o user
 
         users.put(username, newUser);
+        this.persist();
     }
 
 
@@ -52,11 +64,17 @@ public class ToyWhats {
             return false;
         }
 
-        String storedSalt = user.getSalt();
-        String storedDerivedKey = user.getPassword();
-        String derivedKey = deriveKey(password, storedSalt);
+        byte[] storedSalt = user.getSalt();
+        int costParameter = 2048; // exemplo: 2048 (afeta uso de memória e CPU)
+        int blocksize = 8; // exemplo: 8
+        int parallelizationParam = 1; // exemplo: 1
 
-        return derivedKey.equals(storedDerivedKey) && totpCode.equals(Example2fa.getTOTPCode(user.getSecretKey()));
+        byte[] derivedKey2 = SCRYPT.useScryptKDF(password.toCharArray(), storedSalt, costParameter, blocksize, parallelizationParam);
+        String ScryptPassword =  Hex.encodeHexString(derivedKey2);
+
+        String storedDerivedKey = user.getPassword();
+
+        return ScryptPassword.equals(storedDerivedKey) && totpCode.equals(Example2fa.getTOTPCode(user.getSecretKey()));
     }
 
     public void sendMessage(String fromUser, String toUser, String message) {
@@ -210,18 +228,54 @@ public class ToyWhats {
         return new String(decryptedMessage);
     }
 
-    public static String deriveKey(String password, String salt) throws Exception {
-        PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt.getBytes(), 65536, 128);
+    public static String deriveKey(String password, byte[] salt) throws Exception {
+        PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt, 65536, 128);
         SecretKeyFactory skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
         byte[] key = skf.generateSecret(spec).getEncoded();
         return new String(key);
     }
 
-    // Gerando um salt aleatorio
-    public static String generateSalt() {
-        SecureRandom random = new SecureRandom();
-        byte[] salt = new byte[16];
-        random.nextBytes(salt);
-        return Base64.getEncoder().encodeToString(salt);
+    public void persist() {
+        try {
+            FileOutputStream fout = new FileOutputStream(usersFile);
+            ObjectOutputStream oo = new ObjectOutputStream(fout);
+            oo.writeObject(this.users);
+
+            oo.flush();
+            fout.flush();
+
+            oo.close();
+            fout.close();
+
+            loadData();
+
+        } catch (FileNotFoundException ex) {
+            System.out.println(ex);
+            persist();
+        } catch (IOException ex) {
+            System.out.println(ex);
+        }
+    }
+
+    public void loadData() {
+        try {
+            FileInputStream fin = new FileInputStream(usersFile);
+            ObjectInputStream oi = new ObjectInputStream(fin);
+
+            this.users = (HashMap<String, User>) oi.readObject();
+
+            oi.close();
+            fin.close();
+
+        } catch (ClassNotFoundException ex) {
+            ex.printStackTrace();
+
+        } catch (FileNotFoundException ex) {
+            System.out.println(ex);
+            persist();
+
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
     }
 }
