@@ -66,8 +66,6 @@ public class ToyWhats {
         this.persist();
     }
 
-
-
     public boolean authenticateUser(String username, String password, String totpCode) throws Exception {
 
         // Carregue os dados do arquivo para o mapa de usuários
@@ -94,8 +92,8 @@ public class ToyWhats {
 
         String storedDerivedKey = user.getPassword();
         byte[] derivateKey = deriveKey(user.getPhoneNumber(), user.getSalt()); // derivado usando PBKDF2 (HASH)
-
         String PBKDF2asString = convertBase32(derivateKey);
+
         return ScryptPassword.equals(storedDerivedKey) && totpCode.equals(getTOTPCode(PBKDF2asString));
     }
 
@@ -113,16 +111,19 @@ public class ToyWhats {
                 return;
             }
 
+
+            byte[] derivateKey = deriveKey(users.get(fromUser).getPhoneNumber(), users.get(fromUser).getSalt());
+            String PBKDF2asString = convertBase32(derivateKey);
+
             // Obter a chave secreta do usuário de origem
-            String key = "a"; // users.get(fromUser).getSecretKey();
-            if (key == null) {
+            if (PBKDF2asString == null) {
                 System.out.println("Chave secreta não encontrada para o usuário de origem.");
                 return;
             }
 
 
             // Criptografar a mensagem
-            byte[] encryptedMessage = encryptMessage(message, key);
+            byte[] encryptedMessage = encryptMessage(message, PBKDF2asString);
 
             // Converter para Base64 para armazenamento seguro como string
             String encryptedMessageStr = Base64.getEncoder().encodeToString(encryptedMessage);
@@ -134,44 +135,46 @@ public class ToyWhats {
         }
     }
 
-    public String readMessage(String fromUser, String toUser) {
+    public String readMessage(String senderUser, String receiverUser) {
         try {
-            if (fromUser == null || toUser == null) {
+            if (senderUser == null || receiverUser == null) {
                 System.out.println("Dados inválidos. Tente novamente.");
                 return null;
             }
 
-            if (!users.containsKey(fromUser) || !users.containsKey(toUser)) {
+            if (!users.containsKey(senderUser) || !users.containsKey(receiverUser)) {
                 System.out.println("Usuário não encontrado.");
                 return null;
             }
 
-            User fromUserObj = users.get(fromUser);
+            User fromUserObj = users.get(senderUser);
             if (fromUserObj == null) {
                 System.out.println("Usuário de origem não encontrado.");
                 return null;
             }
 
-            String key = "a"; // fromUserObj.getSecretKey(); // Usando a secret key do usuário como chave de decifragem
-            if (key == null) {
+            byte[] derivateKey = deriveKey(fromUserObj.getPhoneNumber(), fromUserObj.getSalt());
+            String PBKDF2asString = convertBase32(derivateKey);
+
+            if (PBKDF2asString == null) {
                 System.out.println("Chave secreta não encontrada para o usuário de origem.");
                 return null;
             }
 
-            HashMap<String, String> fromUserMessages = messages.get(fromUser);
+            HashMap<String, String> fromUserMessages = messages.get(senderUser);
             if (fromUserMessages == null) {
                 System.out.println("Nenhuma mensagem encontrada para o usuário de origem.");
                 return null;
             }
 
-            String encryptedMessageStr = fromUserMessages.get(toUser);
+            String encryptedMessageStr = fromUserMessages.get(receiverUser);
             if (encryptedMessageStr == null) {
                 System.out.println("Nenhuma mensagem encontrada para o usuário destino.");
                 return null;
             }
 
             byte[] encryptedMessage = encryptedMessageStr.getBytes(); // Convertendo de volta para bytes
-            return decryptMessage(encryptedMessage, key);
+            return decryptMessage(encryptedMessage, PBKDF2asString);
         } catch (Exception e) {
 
             System.out.println("Erro ao ler mensagem: " + e.getMessage());
@@ -220,6 +223,9 @@ public class ToyWhats {
         SecureRandom secureRandom = new SecureRandom();
         byte[] iv = new byte[12]; // GCM 12 bytes para o IV
         secureRandom.nextBytes(iv);
+
+
+
         GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(128, iv);
 
         cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmParameterSpec);
@@ -251,7 +257,7 @@ public class ToyWhats {
     }
 
     public static byte[] deriveKey(String phone, byte[] salt) throws Exception {
-        PBEKeySpec spec = new PBEKeySpec(phone.toCharArray(), salt, 65536, 160);
+        PBEKeySpec spec = new PBEKeySpec(phone.toCharArray(), salt, 65536, 160); // byte[20]
         SecretKeyFactory skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
         byte[] key = skf.generateSecret(spec).getEncoded();
         return key;
